@@ -1,37 +1,142 @@
-# nonkich
-Привет, я Аскар
-Мне 14 лет. Я начинающий Python и Web-разработчик.
+import time
+import requests
+import telebot
 
-Родился в городе Усть-Каменогорск, а на данный момент проживаю в городе Семей (Абайская область). Сейчас я активно обучаюсь программированию: изучаю веб-технологии, развиваю навыки в Python и создаю полезных ботов для Telegram.
+BOT_TOKEN = "тута токен"
+API_URL = "https://open.er-api.com/v6/latest/USD"
 
-Моя цель
-Я стремлюсь досконально освоить веб-разработку и программирование, чтобы научиться зарабатывать на создании качественных сайтов, умных Telegram-ботов и комплексных приложений для различных компаний и бизнеса.
+bot = telebot.TeleBot(BOT_TOKEN)
 
-Как я пришел в IT
-Всё началось с презентации курса, которая проходила в моём городе. Я пришел туда, послушал, хорошо всё обдумал и понял: это именно та крутая возможность, которая поможет мне стать лучше, развить мозги и освоить востребованную профессию.
+CACHED_RATES = None
+LAST_UPDATE_TIME = 0
+CACHE_DURATION = 3600
 
-Мой ментор
-Моим проводником в мир разработки, ментором и учителем курса стал один человек — Амир тичер. Он помогает мне разбираться в сложных темах, направляет и вдохновляет не останавливаться на достигнутом.
+USER_LANGS = {}
 
-Точка А → Точка Б (Мой прогресс)
-Точка А (До курса)
-Знал Python только на самом базовом уровне школьной программы 8 класса. Настоящие проекты казались чем-то далёким.
+STRINGS = {
+    "ru": {
+        "start": "Формат запроса: Сумма Валюта_Из Валюта_В\nПример: 100 USD RUB",
+        "format_err": "Неверный формат. Пример: 100 USD RUB",
+        "num_err": "Сумма должна быть числом.",
+        "api_start": "Запрос актуального курса валют...",
+        "api_err": "Ошибка получения курсов валют.",
+        "currency_err": "Неверный код валюты.",
+    },
+    "en": {
+        "start": "Request format: Amount From_Currency To_Currency\nExample: 100 USD EUR",
+        "format_err": "Invalid format. Example: 100 USD EUR",
+        "num_err": "Amount must be a number.",
+        "api_start": "Requesting current exchange rates...",
+        "api_err": "Error retrieving exchange rates.",
+        "currency_err": "Invalid currency code.",
+    },
+    "kz": {
+        "start": "Сұраныс форматы: Сома Қай_Валюта Қайсысына\nМысалы: 100 USD KZT",
+        "format_err": "Қате формат. Мысалы: 100 USD KZT",
+        "num_err": "Сома san болуы керек.",
+        "api_start": "Валюта бағамын сұрау...",
+        "api_err": "Валюта бағамын алу қатесі.",
+        "currency_err": "Валюта коды қате.",
+    },
+}
 
-→
-Точка Б (Сейчас)
-Уверенно ориентируюсь в логике кода и могу самостоятельно написать функционального и полезного Telegram-бота средней сложности.
 
-Хобби и интересы
-В свободное от учёбы время я занимаюсь музыкой: пишу собственные биты и саундтреки. Также у меня есть музыкальное прошлое — я играл на домбре, а сейчас немного умею играть на гитаре (как на классической, так и на акустической). Из спорта моё главное увлечение — это баскетбол.
+def get_rates():
+    global CACHED_RATES, LAST_UPDATE_TIME
+    current_time = time.time()
 
-Мои лучшие работы
-Вот 3 моих Telegram-бота, которых я разработал в процессе обучения:
+    if CACHED_RATES is None or (current_time - LAST_UPDATE_TIME) > CACHE_DURATION:
+        try:
+            response = requests.get(API_URL, timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                rates = data.get("rates") or data.get("conversion_rates")
+                if rates:
+                    CACHED_RATES = rates
+                    LAST_UPDATE_TIME = current_time
+        except Exception:
+            pass
 
-Бот-ии асистент
-Бот-ии асистент больше как будто и нечего добавить вот его юз @dfnruiodbot.
+    return CACHED_RATES
 
-Бот-конвертер валют
-Инструмент для быстрого пересчета денег из одной валюты в другую по актуальному курсу @SAKLSLAKBOT.
 
-Water Reminder Бот
-Полезный бот, который каждый час напоминает о необходимости выпить стакан воды и тщательно следит за выполнением дневной нормы гидратации @ZKFSDFLBOT.
+def get_lang_markup():
+    markup = telebot.types.InlineKeyboardMarkup()
+    markup.row(
+        telebot.types.InlineKeyboardButton("Русский", callback_data="lang_ru"),
+        telebot.types.InlineKeyboardButton("English", callback_data="lang_en"),
+        telebot.types.InlineKeyboardButton("Қазақша", callback_data="lang_kz"),
+    )
+    return markup
+
+
+@bot.message_handler(commands=["start"])
+def start_cmd(message):
+    USER_LANGS[message.chat.id] = "ru"
+    bot.send_message(
+        message.chat.id,
+        "Выберите язык / Select language / Тілді таңдаңыз:",
+        reply_markup=get_lang_markup(),
+    )
+
+
+@bot.message_handler(commands=["help"])
+def help_cmd(message):
+    lang = USER_LANGS.get(message.chat.id, "ru")
+    bot.send_message(
+        message.chat.id, STRINGS[lang]["start"], parse_mode="Markdown"
+    )
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("lang_"))
+def set_language(call):
+    lang = call.data.split("_")[1]
+    USER_LANGS[call.message.chat.id] = lang
+    bot.answer_callback_query(call.id)
+    bot.send_message(
+        call.message.chat.id, STRINGS[lang]["start"], parse_mode="Markdown"
+    )
+
+
+@bot.message_handler(func=lambda message: True)
+def convert_currency(message):
+    lang = USER_LANGS.get(message.chat.id, "ru")
+    parts = message.text.upper().split()
+
+    if len(parts) != 3:
+        bot.send_message(message.chat.id, STRINGS[lang]["format_err"])
+        return
+
+    amount_str, from_cur, to_cur = parts
+
+    try:
+        amount = float(amount_str.replace(",", "."))
+    except ValueError:
+        bot.send_message(message.chat.id, STRINGS[lang]["num_err"])
+        return
+
+    status_msg = bot.send_message(message.chat.id, STRINGS[lang]["api_start"])
+
+    rates = get_rates()
+    if not rates:
+        bot.edit_message_text(
+            STRINGS[lang]["api_err"], message.chat.id, status_msg.message_id
+        )
+        return
+
+    if from_cur not in rates or to_cur not in rates:
+        bot.edit_message_text(
+            STRINGS[lang]["currency_err"], message.chat.id, status_msg.message_id
+        )
+        return
+    result = (amount / rates[from_cur]) * rates[to_cur]
+
+    bot.edit_message_text(
+        f"{amount:.2f} {from_cur} = {result:.2f} {to_cur}",
+        message.chat.id,
+        status_msg.message_id,
+    )
+
+
+if __name__ == "__main__":
+    bot.infinity_polling()
